@@ -28,7 +28,7 @@ ext_modules.append(
     CUDAExtension(
         name="cbm_cuda",
         sources=[
-            "csrc/cbm/cbm_api.cpp",
+            "csrc/cbm/bm_api.cu",
         ],
         extra_compile_args={
             "cxx": ["-O3", "-std=c++17"] + generator_flag,
