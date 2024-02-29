@@ -32,26 +32,28 @@ for (k = 2; k <= n; k *= 2) // kernel iteration
                           swap the elements arr[idx] and arr[l]
 */
 
-template<typename Engine0, typename Layout0, typename Engine1, typename Layout1, 
-        typename Engine2, typename Layout2>
+template<typename Engine0, typename Layout0, typename Engine1, typename Layout1>
 inline __device__ void
 bm_atom(Tensor<Engine0, Layout0> src, 
-        const Tensor<Engine1, Layout1> idx_l, 
-        const Tensor<Engine2, Layout2> idx_i,
+        const Tensor<Engine1, Layout1> idx, 
+        const int j,
+        const int k,
         const int offset) {
-    CUTE_STATIC_ASSERT_V(rank(idx_l) == rank(idx_i));
-    CUTE_STATIC_ASSERT_V(size(idx_l) == size(idx_i));
 #pragma unroll 
-    for (int i = 0; i < size(idx_l); i++) {
-        int idx_l_i = idx_l(i);
-        int idx_i_i = idx_i(i);
+    Tensor src_offset = make_tensor(src.data() + offset, src.shape(), src.stride());
 
-        if (idx_l_i > idx_i_i) {
-            if (  (idx_l_i & idx_i_i == 0) && (src(idx_l_i + offset) > src(idx_i_i + offset))
-               || (idx_l_i & idx_i_i != 0) && (src(idx_l_i + offset) < src(idx_i_i + offset))) {
-                auto tmp = src(idx_l_i + offset);
-                src(idx_l_i + offset) = src(idx_i_i + offset);
-                src(idx_i_i + offset) = tmp;
+    for (int ii = 0; ii < size(idx); ii++) {
+        int i = idx(ii);
+        int l = i ^ j;
+        if(threadIdx.x == 1 && blockIdx.x == 0) printf("i: %d, l: %d, j: %d, k: %d\n", i, l, j, k);
+
+        if (l > i) {
+            if (  (((i & k) == 0) && (src_offset(i) > src_offset(l)))
+               || (((i & k) != 0) && (src_offset(i) < src_offset(l)))) {
+                if (threadIdx.x == 1 && blockIdx.x == 0) printf("swap\n");
+                auto tmp = src_offset(l);
+                src_offset(l) = src_offset(i);
+                src_offset(i) = tmp;
             }
         }
     }
@@ -87,8 +89,8 @@ sort_row_slice(const Bm_params &params, int row, int slice) {
     auto gmem_thr_copy = gmem_tiled_copy.get_thread_slice(tid);
     Tensor tTgT = gmem_thr_copy.partition_S(gT);
     Tensor tTsT = gmem_thr_copy.partition_D(sT);
-    Tensor tTcT = gmem_thr_copy.partition_D(cT);
-    Tensor tL = make_tensor<int>(tTcT.shape());
+
+    Tensor tTcT = local_tile(cT, Kernel_traits::SortTileShape(), make_coord(tid));
     Tensor tI = make_tensor<int>(tTcT.shape());
 
     copy(tTgT, tTsT);
@@ -98,15 +100,24 @@ sort_row_slice(const Bm_params &params, int row, int slice) {
     for (int i = 0; i < size(tTcT); i++) {
         tI(i) = get<0>(tTcT(i)) + slice_offset;
     }
+
+    if (blockIdx.x == 0 && threadIdx.x == 2) {
+        print_tensor(tI);  
+        printf("\n");
+        print(tTcT);
+        printf("\n");
+        print(tTgT);
+        printf("\n");
+        print(tTsT);        
+        printf("\n");
+    } 
     
     for (int k = params.k_start; k < params.k_end; k *= 2) {
 #pragma unroll
         for (int j = k/2; j > 0; j /= 2) {
-            for (int i = 0; i < tL.size(); i++) {
-                tL(i) = tI(i) ^ j;
-            }
-
-            bm::bm_atom(sT, tL, tI, -1 * slice_offset);
+            //if (thread0()) print_tensor(sT);
+            //__syncthreads();
+            bm::bm_atom(sT, tI, j, k, -1 * slice_offset);
             __syncthreads();
         }
     }

@@ -26,4 +26,7 @@ struct Bm_kernel_traits {
         make_tiled_copy(Copy_Atom<Gmem_copy_struct, Element>{},
                         GmemThreadLayout{},
                         Layout<Shape<Int<gmemElemsPerLoad>>>{}));
+
+    static constexpr int sortElemsPerThread = blockN / nThreads;
+    using SortTileShape = Shape<Int<sortElemsPerThread>>;
 };
