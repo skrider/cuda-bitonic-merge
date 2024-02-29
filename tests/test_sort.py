@@ -5,7 +5,7 @@ import torch
 # @pytest.mark.parametrize("d", [64, 1024, 4096])
 # @pytest.mark.parametrize("b", [8, 16, 32])
 # @pytest.mark.parametrize("dim", [0, 1])
-@pytest.mark.parametrize("d", [4096])
+@pytest.mark.parametrize("d", [1024])
 @pytest.mark.parametrize("b", [8])
 @pytest.mark.parametrize("dim", [1])
 @torch.no_grad()

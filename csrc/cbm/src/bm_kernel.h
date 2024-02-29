@@ -10,22 +10,108 @@ using namespace cute;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+/*
+for (k = 2; k <= n; k *= 2) // kernel iteration
+    for (j = k/2; j > 0; j /= 2) // inside block
+        for (i = 0; i < n; i++) // grid
+            l = bitwiseXOR (i, j); // in C-like languages this is "i ^ j"
+            if (l > i)
+                if (  (bitwiseAND (i, k) == 0) AND (arr[i] > arr[l])
+                   OR (bitwiseAND (i, k) != 0) AND (arr[i] < arr[l]) )
+                      swap the elements arr[i] and arr[l]
+
+for (k = 2; k <= n; k *= 2) // kernel iteration
+    for (j = k/2; j > 0; j /= 2) // inside block
+        for (i = 0; i < n; i+= blockN) // grid
+            for (ii = 0; ii < blockN; ii++) // thread
+                idx = i + ii;
+                l = bitwiseXOR (idx, j); // in C-like languages this is "i ^ j"
+                if (l > idx)
+                    if (  (bitwiseAND (idx, k) == 0) AND (arr[idx] > arr[l])
+                       OR (bitwiseAND (idx, k) != 0) AND (arr[idx] < arr[l]) )
+                          swap the elements arr[idx] and arr[l]
+*/
+
+template<typename Engine0, typename Layout0, typename Engine1, typename Layout1, 
+        typename Engine2, typename Layout2>
+inline __device__ void
+bm_atom(Tensor<Engine0, Layout0> src, 
+        const Tensor<Engine1, Layout1> idx_l, 
+        const Tensor<Engine2, Layout2> idx_i,
+        const int offset) {
+    CUTE_STATIC_ASSERT_V(rank(idx_l) == rank(idx_i));
+    CUTE_STATIC_ASSERT_V(size(idx_l) == size(idx_i));
+#pragma unroll 
+    for (int i = 0; i < size(idx_l); i++) {
+        int idx_l_i = idx_l(i);
+        int idx_i_i = idx_i(i);
+
+        if (idx_l_i > idx_i_i) {
+            if (  (idx_l_i & idx_i_i == 0) && (src(idx_l_i + offset) > src(idx_i_i + offset))
+               || (idx_l_i & idx_i_i != 0) && (src(idx_l_i + offset) < src(idx_i_i + offset))) {
+                auto tmp = src(idx_l_i + offset);
+                src(idx_l_i + offset) = src(idx_i_i + offset);
+                src(idx_i_i + offset) = tmp;
+            }
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 template<typename Kernel_traits>
 inline __device__ void 
-sort_row(const Bm_params &params, int row) {
+sort_row_slice(const Bm_params &params, int row, int slice) {
     using Element = typename Kernel_traits::Element;
     using index_t = typename Kernel_traits::index_t;
     constexpr int blockN = Kernel_traits::blockN;
-    constexpr int nWarps = Kernel_traits::nWarps;
 
-    int row_offset = row * params.in_batch_stride;
+    int slice_offset = slice * blockN;
+    int tid = threadIdx.x;
+
+    extern __shared__ char smem_[];
+
+    int row_offset = row * params.in_batch_stride + slice_offset;
     Tensor gT = make_tensor(
         make_gmem_ptr(reinterpret_cast<Element *>(params.in_ptr) + row_offset),
-        make_shape(params.in_batch_stride),
+        make_shape(Int<blockN>{}),
         make_stride(_1{})
     );
+    Tensor sT = make_tensor(
+        make_smem_ptr(reinterpret_cast<Element *>(smem_)),
+        typename Kernel_traits::SmemLayout{}
+    );
+    Tensor cT = make_identity_tensor(Shape<Int<blockN>>{});
 
-    fill(gT, 1.f * row);
+    typename Kernel_traits::GmemTiledCopy gmem_tiled_copy;
+    auto gmem_thr_copy = gmem_tiled_copy.get_thread_slice(tid);
+    Tensor tTgT = gmem_thr_copy.partition_S(gT);
+    Tensor tTsT = gmem_thr_copy.partition_D(sT);
+    Tensor tTcT = gmem_thr_copy.partition_D(cT);
+    Tensor tL = make_tensor<int>(tTcT.shape());
+    Tensor tI = make_tensor<int>(tTcT.shape());
+
+    copy(tTgT, tTsT);
+    __syncthreads();
+
+#pragma unroll
+    for (int i = 0; i < size(tTcT); i++) {
+        tI(i) = get<0>(tTcT(i)) + slice_offset;
+    }
+    
+    for (int k = params.k_start; k < params.k_end; k *= 2) {
+#pragma unroll
+        for (int j = k/2; j > 0; j /= 2) {
+            for (int i = 0; i < tL.size(); i++) {
+                tL(i) = tI(i) ^ j;
+            }
+
+            bm::bm_atom(sT, tL, tI, -1 * slice_offset);
+            __syncthreads();
+        }
+    }
+
+    copy(tTsT, tTgT);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -34,7 +120,8 @@ template<typename Kernel_traits>
 inline __device__ void 
 do_sort(const Bm_params &params) {
     const int row = blockIdx.x;
-    bm::sort_row<Kernel_traits>(params, row);
+    const int slice = blockIdx.y;
+    bm::sort_row_slice<Kernel_traits>(params, row, slice);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

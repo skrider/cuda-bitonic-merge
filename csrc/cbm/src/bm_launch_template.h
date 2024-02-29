@@ -13,14 +13,16 @@ bm_kernel(__grid_constant__ const Bm_params params) {
 template<typename Kernel_traits>
 void
 run_bm_(const Bm_params &params, cudaStream_t stream) {
-    dim3 grid(params.n_seq);
+    int n_slices = DIV_ROUND_UP(params.in_batch_stride, Kernel_traits::blockN);
+    dim3 grid(params.n_seq, n_slices);
+    constexpr int smem_size = Kernel_traits::smemSize;
 
     auto kernel = &bm_kernel<Kernel_traits>;
-    kernel<<<grid, Kernel_traits::nThreads, 0, stream>>>(params);
+    kernel<<<grid, Kernel_traits::nThreads, smem_size, stream>>>(params);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void
 run_bm(const Bm_params& params, cudaStream_t stream) {
-    run_bm_<Bm_kernel_traits<128, 4>>(params, stream);
+    run_bm_<Bm_kernel_traits<1024, 4>>(params, stream);
 }

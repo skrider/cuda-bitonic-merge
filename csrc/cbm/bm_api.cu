@@ -14,6 +14,8 @@ sort(at::Tensor &t, const int dim) {
     params.in_ptr = reinterpret_cast<void*>(t.data_ptr());
     params.in_batch_stride = t.stride(0);
     params.n_seq = t.size(0);
+    params.k_start = 2;
+    params.k_end = 2048;
 
     run_bm(params, at::cuda::getCurrentCUDAStream());
 }
