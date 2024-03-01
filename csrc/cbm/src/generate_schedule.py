@@ -36,23 +36,39 @@ ns = [2 ** i for i in log_ns]
 block_widths = [2 ** i for i in log_block_widths]
 
 code = ""
-code += "static std::vector<std::vector<int>> schedules = {\n    "
+code += "#include <vector>\n"
+code += "#include <stdexcept>\n"
+code += "\n"
+code += "static std::vector<std::vector<std::vector<int>>> schedules = {\n    "
 members = []
 
 for i in log_ns:
-    for j in log_block_widths:
-        schedule = generate_schedule(2 ** i, 2 ** j)
-        acc = []
-        for k, s in enumerate(schedule):
-            if s[2]:
-                acc.append(k)
-        members.append("{" + ", ".join(map(str, acc)) + "}")
+    for jj in log_block_widths:
+        schedule = generate_schedule(2 ** i, 2 ** jj)
+        acc = [[0, 0, 0, 0, False]] # k start, k end, j start, j end, gmem
+        append_new = True
+
+        for ii, s in enumerate(schedule):
+            exceeds_width = s[2]
+            if append_new or exceeds_width:
+                k = s[0]
+                j = s[1]
+                acc[-1][1] = k
+                acc[-1][3] = j
+                acc.append([k, 0, j, 0, 1 if exceeds_width else 0])
+                append_new = exceeds_width
+
+        acc[-1][1] = schedule[-1][0]
+        acc[-1][3] = schedule[-1][1]
+        acc = acc[1:]
+
+        members.append("{\n        " + ",\n        ".join([f"{{{x[0]}, {x[1]}, {x[2]}, {x[3]}, {int(x[4])}}}" for x in acc]) + "\n    }")
 
 code += ",\n    ".join(members)
 code += "\n};\n"
 
 code += f"""
-std::vector<int> get_schedule(int log_n, int log_block_width) {{
+std::vector<std::vector<int>> get_schedule(int log_n, int log_block_width) {{
     int coord = (log_n - {log_ns[0]}) * {len(log_block_widths)} + (log_block_width - {log_block_widths[0]});
     if (coord < 0 || coord >= schedules.size()) {{
         throw std::runtime_error("Invalid kernel parameters");
