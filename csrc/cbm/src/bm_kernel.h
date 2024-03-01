@@ -61,7 +61,7 @@ bm_atom(Tensor<Engine0, Layout0> src,
 
 template<typename Kernel_traits>
 inline __device__ void 
-sort_row_slice(const Bm_params &params, const int row, const int slice) {
+sort_row_slice_smem(const Bm_params &params, const int row, const int slice) {
     using Element = typename Kernel_traits::Element;
     using index_t = typename Kernel_traits::index_t;
     constexpr int blockN = Kernel_traits::blockN;
@@ -113,10 +113,40 @@ sort_row_slice(const Bm_params &params, const int row, const int slice) {
 
 template<typename Kernel_traits>
 inline __device__ void 
+sort_row_slice(const Bm_params &params, const int row, const int slice, const int k, const int j) {
+    using Element = typename Kernel_traits::Element;
+    using index_t = typename Kernel_traits::index_t;
+    constexpr int blockN = Kernel_traits::blockN;
+
+    int slice_offset = slice * blockN;
+    int row_offset = row * params.in_batch_stride + slice_offset;
+    int tid = threadIdx.x;
+
+    Tensor gT = make_tensor(
+        make_gmem_ptr(reinterpret_cast<Element *>(params.in_ptr) + row_offset),
+        make_shape(Int<blockN>{}),
+        make_stride(_1{})
+    );
+    Tensor cT = make_identity_tensor(Shape<Int<blockN>>{});
+    Tensor tTcT = local_tile(cT, Kernel_traits::SortTileShape(), make_coord(tid));
+    Tensor tI = make_tensor<int>(tTcT.shape());
+
+#pragma unroll
+    for (int i = 0; i < size(tTcT); i++) {
+        tI(i) = get<0>(tTcT(i)) + slice_offset;
+    }
+
+    bm::bm_atom(gT, tI, j, k, 0);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+template<typename Kernel_traits>
+inline __device__ void 
 do_sort(const Bm_params &params) {
     const int row = blockIdx.x;
     const int slice = blockIdx.y;
-    bm::sort_row_slice<Kernel_traits>(params, row, slice);
+    bm::sort_row_slice_smem<Kernel_traits>(params, row, slice);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
