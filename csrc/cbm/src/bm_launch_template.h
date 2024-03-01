@@ -3,6 +3,7 @@
 #include "bm.h"
 #include "bm_kernel.h"
 #include "kernel_traits.h"
+#include "static_switch.h"
 
 template<typename Kernel_traits>
 __global__ void 
@@ -24,5 +25,9 @@ run_bm_(const Bm_params &params, cudaStream_t stream) {
 
 void
 run_bm(const Bm_params& params, cudaStream_t stream) {
-    run_bm_<Bm_kernel_traits<256, 1>>(params, stream);
+    DTYPE_SWITCH(params.dtype, [&]() {
+        SEQLEN_SWITCH(params.seqlen, [&]() {
+            run_bm_<Bm_kernel_traits<blockN, nWarps, Element>>(params, stream);
+        });
+    });
 }

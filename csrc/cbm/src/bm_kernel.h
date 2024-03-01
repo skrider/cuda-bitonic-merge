@@ -41,7 +41,6 @@ bm_atom(Tensor<Engine0, Layout0> src,
         const int offset) {
     Tensor src_offset = make_tensor(src.data() + offset, src.shape(), src.stride());
 
-#pragma unroll 
     for (int ii = 0; ii < size(idx); ii++) {
         int i = idx(ii);
         int l = i ^ j;
@@ -54,6 +53,8 @@ bm_atom(Tensor<Engine0, Layout0> src,
                 src_offset(i) = tmp;
             }
         }
+        
+        __syncthreads();
     }
 }
 
@@ -94,13 +95,11 @@ sort_row_slice(const Bm_params &params, const int row, const int slice) {
     copy(tTgT, tTsT);
     __syncthreads();
 
-#pragma unroll
     for (int i = 0; i < size(tTcT); i++) {
         tI(i) = get<0>(tTcT(i)) + slice_offset;
     }
 
     for (int k = params.k_start; k < params.k_end; k *= 2) {
-#pragma unroll
         for (int j = k/2; j > 0; j /= 2) {
             bm::bm_atom(sT, tI, j, k, -1 * slice_offset);
             __syncthreads();
