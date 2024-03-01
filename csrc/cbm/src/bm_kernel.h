@@ -39,18 +39,16 @@ bm_atom(Tensor<Engine0, Layout0> src,
         const int j,
         const int k,
         const int offset) {
-#pragma unroll 
     Tensor src_offset = make_tensor(src.data() + offset, src.shape(), src.stride());
 
+#pragma unroll 
     for (int ii = 0; ii < size(idx); ii++) {
         int i = idx(ii);
         int l = i ^ j;
-        if(threadIdx.x == 1 && blockIdx.x == 0) printf("i: %d, l: %d, j: %d, k: %d\n", i, l, j, k);
 
         if (l > i) {
             if (  (((i & k) == 0) && (src_offset(i) > src_offset(l)))
                || (((i & k) != 0) && (src_offset(i) < src_offset(l)))) {
-                if (threadIdx.x == 1 && blockIdx.x == 0) printf("swap\n");
                 auto tmp = src_offset(l);
                 src_offset(l) = src_offset(i);
                 src_offset(i) = tmp;
@@ -63,17 +61,17 @@ bm_atom(Tensor<Engine0, Layout0> src,
 
 template<typename Kernel_traits>
 inline __device__ void 
-sort_row_slice(const Bm_params &params, int row, int slice) {
+sort_row_slice(const Bm_params &params, const int row, const int slice) {
     using Element = typename Kernel_traits::Element;
     using index_t = typename Kernel_traits::index_t;
     constexpr int blockN = Kernel_traits::blockN;
 
     int slice_offset = slice * blockN;
+    int row_offset = row * params.in_batch_stride + slice_offset;
     int tid = threadIdx.x;
 
     extern __shared__ char smem_[];
 
-    int row_offset = row * params.in_batch_stride + slice_offset;
     Tensor gT = make_tensor(
         make_gmem_ptr(reinterpret_cast<Element *>(params.in_ptr) + row_offset),
         make_shape(Int<blockN>{}),
@@ -101,27 +99,13 @@ sort_row_slice(const Bm_params &params, int row, int slice) {
         tI(i) = get<0>(tTcT(i)) + slice_offset;
     }
 
-    if (blockIdx.x == 0 && threadIdx.x == 2) {
-        print_tensor(tI);  
-        printf("\n");
-        print(tTcT);
-        printf("\n");
-        print(tTgT);
-        printf("\n");
-        print(tTsT);        
-        printf("\n");
-    } 
-    
     for (int k = params.k_start; k < params.k_end; k *= 2) {
 #pragma unroll
         for (int j = k/2; j > 0; j /= 2) {
-            //if (thread0()) print_tensor(sT);
-            //__syncthreads();
             bm::bm_atom(sT, tI, j, k, -1 * slice_offset);
             __syncthreads();
         }
     }
-
     copy(tTsT, tTgT);
 }
 

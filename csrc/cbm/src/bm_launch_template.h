@@ -24,5 +24,5 @@ run_bm_(const Bm_params &params, cudaStream_t stream) {
 
 void
 run_bm(const Bm_params& params, cudaStream_t stream) {
-    run_bm_<Bm_kernel_traits<32, 1>>(params, stream);
+    run_bm_<Bm_kernel_traits<256, 1>>(params, stream);
 }

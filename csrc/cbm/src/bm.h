@@ -2,6 +2,8 @@
 #include <cuda.h>
 
 #define DIV_ROUND_UP(a, b) (((a) + (b) - 1) / (b))
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
 
 struct Bm_params {
     using index_t = int64_t;

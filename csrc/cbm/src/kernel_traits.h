@@ -13,7 +13,8 @@ struct Bm_kernel_traits {
     using Element = elem_type;
     using index_t = int64_t;
 
-    static constexpr int gmemElemsPerLoad = sizeof(cute::uint128_t) / sizeof(Element);
+    static constexpr int sortElemsPerThread = blockN / nThreads;
+    static constexpr int gmemElemsPerLoad = MIN(sizeof(cute::uint128_t) / sizeof(Element), sortElemsPerThread);
 
     using SmemLayout = Layout<Shape<Int<blockN>>>;
 
@@ -27,6 +28,5 @@ struct Bm_kernel_traits {
                         GmemThreadLayout{},
                         Layout<Shape<Int<gmemElemsPerLoad>>>{}));
 
-    static constexpr int sortElemsPerThread = blockN / nThreads;
     using SortTileShape = Shape<Int<sortElemsPerThread>>;
 };

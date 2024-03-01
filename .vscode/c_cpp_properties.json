@@ -1,0 +1,21 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/csrc/**",
+                "${workspaceFolder}/csrc/cutlass/include",
+                "/usr/local/cuda/include",
+                "/usr/local/lib/python3.10/dist-packages/torch/include"
+            ],
+            "defines": [
+                "__CUDA_ARCH__=800"
+            ],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "gcc-x64"
+        }
+    ],
+    "version": 4
+}
