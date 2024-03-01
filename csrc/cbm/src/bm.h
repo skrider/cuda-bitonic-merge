@@ -15,4 +15,9 @@ struct Bm_params {
 
     index_t k_start;
     index_t k_end;
+    
+    index_t j_start;
+    index_t j_end;
+
+    bool end_inclusive;
 };

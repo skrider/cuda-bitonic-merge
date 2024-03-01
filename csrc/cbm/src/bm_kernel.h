@@ -46,6 +46,8 @@ bm_atom(Tensor<Engine0, Layout0> src,
         int i = idx(ii);
         int l = i ^ j;
 
+        if (thread0() && i == 1) printf("i=%d, l=%d, j=%d, k=%d\n", i, l, j, k);
+
         if (l > i) {
             if (  (((i & k) == 0) && (src_offset(i) > src_offset(l)))
                || (((i & k) != 0) && (src_offset(i) < src_offset(l)))) {
@@ -99,13 +101,67 @@ sort_row_slice_smem(const Bm_params &params, const int row, const int slice) {
         tI(i) = get<0>(tTcT(i)) + slice_offset;
     }
 
-    for (int k = params.k_start; k < params.k_end; k *= 2) {
+    int k_end = params.k_end;
+    if (params.end_inclusive) {
+        k_end *= 2;
+    }
+
+    // do the first j blocks
+    if (params.k_start == params.k_end) {
+        if (params.end_inclusive) {
 #pragma unroll
-        for (int j = k/2; j > 0; j /= 2) {
-            bm::bm_atom(sT, tI, j, k, -1 * slice_offset);
-            __syncthreads();
+            for (int j = params.j_start; j > 0; j /= 2) {
+                bm::bm_atom(sT, tI, j, params.k_start, -1 * slice_offset);
+                __syncthreads();
+            }
+        } else {
+#pragma unroll
+            for (int j = params.j_start; j > params.j_end; j /= 2) {
+                bm::bm_atom(sT, tI, j, params.k_start, -1 * slice_offset);
+                __syncthreads();
+            }
         }
     }
+    else {
+        // do the first block
+#pragma unroll
+        for (int j = params.j_start; j > 0; j /= 2) {
+            bm::bm_atom(sT, tI, j, params.k_start, -1 * slice_offset);
+            __syncthreads();
+        }
+        // do the middle blocks
+        int k = params.k_start * 2;
+#pragma unroll
+        for (; k <= k_end / 4; k *= 2) {
+#pragma unroll
+            for (int j = k/2; j > 0; j /= 2) {
+                bm::bm_atom(sT, tI, j, k, -1 * slice_offset);
+                __syncthreads();
+            }
+        }
+        // do the last block
+        if (params.end_inclusive) {
+#pragma unroll
+            for (int j = k/2; j > 0; j /= 2) {
+                bm::bm_atom(sT, tI, j, k, -1 * slice_offset);
+                __syncthreads();
+            }
+        } else {
+#pragma unroll
+            for (int j = k/2; j > params.j_end; j /= 2) {
+                bm::bm_atom(sT, tI, j, k, -1 * slice_offset);
+                __syncthreads();
+            }
+        }
+    }
+
+//     for (int k = params.k_start; k < params.k_end / 2; k *= 2) {
+// #pragma unroll
+//         for (int j = k/2; j > 0; j /= 2) {
+//             bm::bm_atom(sT, tI, j, k, -1 * slice_offset);
+//             __syncthreads();
+//         }
+//     }
     copy(tTsT, tTgT);
 }
 
@@ -113,7 +169,7 @@ sort_row_slice_smem(const Bm_params &params, const int row, const int slice) {
 
 template<typename Kernel_traits>
 inline __device__ void 
-sort_row_slice(const Bm_params &params, const int row, const int slice, const int k, const int j) {
+sort_row_slice(const Bm_params &params, const int row, const int slice) {
     using Element = typename Kernel_traits::Element;
     using index_t = typename Kernel_traits::index_t;
     constexpr int blockN = Kernel_traits::blockN;
@@ -136,17 +192,23 @@ sort_row_slice(const Bm_params &params, const int row, const int slice, const in
         tI(i) = get<0>(tTcT(i)) + slice_offset;
     }
 
-    bm::bm_atom(gT, tI, j, k, 0);
+    bm::bm_atom(gT, tI, params.j_start, params.k_start, 0);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-template<typename Kernel_traits>
+template<typename Kernel_traits, bool isSmem_>
 inline __device__ void 
 do_sort(const Bm_params &params) {
+    constexpr bool isSmem = isSmem_;
     const int row = blockIdx.x;
     const int slice = blockIdx.y;
-    bm::sort_row_slice_smem<Kernel_traits>(params, row, slice);
+
+    if constexpr (isSmem) {
+        bm::sort_row_slice_smem<Kernel_traits>(params, row, slice);
+    } else {
+        bm::sort_row_slice<Kernel_traits>(params, row, slice);
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
