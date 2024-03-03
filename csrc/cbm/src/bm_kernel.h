@@ -34,7 +34,7 @@ for (k = 2; k <= n; k *= 2) // kernel iteration
                           swap the elements arr[idx] and arr[l]
 */
 
-template<bool inGmem=false, typename Engine0, typename Layout0, typename Engine1, typename Layout1>
+template<bool inGmem_=false, typename Engine0, typename Layout0, typename Engine1, typename Layout1>
 __forceinline__ __device__ void
 bm_atom(Tensor<Engine0, Layout0> src, 
         const Tensor<Engine1, Layout1> idx, 
@@ -45,38 +45,29 @@ bm_atom(Tensor<Engine0, Layout0> src,
     constexpr int n_elem = idx.size();
     Tensor rSrc = make_tensor<Engine0::value_type>(make_shape(_2{}, Int<n_elem>{}));
     Tensor rSwap = make_tensor<bool>(make_shape(Int<n_elem>{}));
-    Tensor rDo = make_tensor<bool>(make_shape(Int<n_elem>{}));
-    Tensor rL = make_tensor<int>(make_shape(Int<n_elem>{}));
+    constexpr bool inGmem = false;
 
+#pragma unroll
     for (int ii = 0; ii < n_elem; ii++) {
         int i = idx(ii);
         int l = i ^ j;
         rSrc(0, ii) = src_offset(i);
         rSrc(1, ii) = src_offset(l);
-        rDo(ii) = l > i;
-        rL(ii) = l;
     }
-    
+
+#pragma unroll  
     for (int ii = 0; ii < n_elem; ii++) {
         int i = idx(ii);
         rSwap(ii) = ((((i & k) == 0) && (rSrc(0, ii) > rSrc(1, ii)))
            || (((i & k) != 0) && (rSrc(0, ii) < rSrc(1, ii))));
     }
 
-    if (blockIdx.y == 0 && threadIdx.x == 64) {
-        printf("ITER k = %d, j = %d\n", k, j);
-        auto data = rSrc(0, _);
-        PRINT_NUMPY(data);
-        PRINT_NUMPY(idx);
-        PRINT_NUMPY(rL);
-        PRINT_NUMPY(rSrc);
-        PRINT_NUMPY(rSwap);
-        PRINT_NUMPY(rDo);
+    // atomic swap is required
+    if constexpr (!inGmem) {
+        __syncthreads();
     }
 
-    // atomic swap is required
-    __syncthreads();
-
+#pragma unroll  
     for (int ii = 0; ii < n_elem; ii++) {
         int i = idx(ii);
         int l = i ^ j;
@@ -87,7 +78,9 @@ bm_atom(Tensor<Engine0, Layout0> src,
         }
     }
     
-    __syncthreads();
+    if constexpr (!inGmem) {
+        __syncthreads();
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -132,52 +125,10 @@ sort_row_slice_smem(const Bm_params &params, const int row, const int slice) {
     }
 
     cute::cp_async_wait<0>();
-    __syncthreads();
 
-//    // do the first j blocks
-//    if (params.k_start == params.k_end) {
-//        if (params.end_inclusive) {
-//#pragma unroll
-//            for (int j = params.j_start; j > 0; j /= 2) {
-//                bm::bm_atom(sT, tI, j, params.k_start, -1 * slice_offset);
-//            }
-//        } else {
-//#pragma unroll
-//            for (int j = params.j_start; j > params.j_end; j /= 2) {
-//                bm::bm_atom(sT, tI, j, params.k_start, -1 * slice_offset);
-//            }
-//        }
-//    }
-//    else {
-//        // do the first block
-//#pragma unroll
-//        for (int j = params.j_start; j > 0; j /= 2) {
-//            bm::bm_atom(sT, tI, j, params.k_start, -1 * slice_offset);
-//        }
-//        // do the middle blocks
-//        int k = params.k_start * 2;
-//#pragma unroll
-//        for (; k <= k_end / 4; k *= 2) {
-//#pragma unroll
-//            for (int j = k/2; j > 0; j /= 2) {
-//                bm::bm_atom(sT, tI, j, k, -1 * slice_offset);
-//            }
-//        }
-//        // do the last block
-//        if (params.end_inclusive) {
-//#pragma unroll
-//            for (int j = k/2; j > 0; j /= 2) {
-//                bm::bm_atom(sT, tI, j, k, -1 * slice_offset);
-//            }
-//        } else {
-//#pragma unroll
-//            for (int j = k/2; j > params.j_end; j /= 2) {
-//                bm::bm_atom(sT, tI, j, k, -1 * slice_offset);
-//            }
-//        }
-//    }
     int j = params.j_start;
     for (int k = params.k_start; k <= params.k_end; k *= 2, j = k / 2) {
+#pragma unroll
         for (; j > 0; j /= 2) {
             if (k == params.k_end && !params.end_inclusive && j == params.j_end) {
                 break;

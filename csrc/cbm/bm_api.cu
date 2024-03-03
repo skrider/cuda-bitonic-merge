@@ -27,14 +27,7 @@ bm_sort(at::Tensor &t, const int dim) {
     int block_size_log2 = std::log2(block_size);
 
     auto schedule = get_schedule(seq_len_log2, block_size_log2);
-    printf("\n");
-    for (auto const& s : schedule) {
-        printf("[");
-        for (auto const& n : s)
-            printf("%d, ", n);
-        printf("]\n");
-    }
-
+    
     Bm_params params;
     params.in_ptr = reinterpret_cast<void*>(t.data_ptr());
     params.in_batch_stride = t.stride(0);
