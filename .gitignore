@@ -3,3 +3,4 @@ cbm.egg-info
 __pycache__
 *.so
 *.log
+.gdb_history

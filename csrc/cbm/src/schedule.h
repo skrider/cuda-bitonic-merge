@@ -182,7 +182,7 @@ static std::vector<std::vector<std::vector<int>>> schedules = {
 std::vector<std::vector<int>> get_schedule(int log_n, int log_block_width) {
     int coord = (log_n - 12) * 4 + (log_block_width - 12);
     if (coord < 0 || coord >= schedules.size()) {
-        throw std::runtime_error("Invalid kernel parameters");
+        throw std::runtime_error("cbm: Invalid kernel parameters for schedule");
     }
     return schedules[coord];
 }

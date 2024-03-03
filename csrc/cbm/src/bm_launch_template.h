@@ -3,22 +3,23 @@
 #include "bm.h"
 #include "bm_kernel.h"
 #include "kernel_traits.h"
+#include "static_switch.h"
 
-template<typename Kernel_traits, bool isSmem_>
+template<typename Kernel_traits, bool isGmem_>
 __global__ void 
 bm_kernel(__grid_constant__ const Bm_params params) {
-    bm::do_sort<Kernel_traits, isSmem_>(params);
+    bm::do_sort<Kernel_traits, isGmem_>(params);
 }
 
-template<typename Kernel_traits, bool isSmem_>
+template<typename Kernel_traits, bool isGmem_>
 void
 run_bm_(const Bm_params &params, cudaStream_t stream) {
-    int n_slices = DIV_ROUND_UP(params.in_batch_stride, Kernel_traits::blockN);
+    int n_slices = DIV_ROUND_UP(params.seqlen, Kernel_traits::blockN);
     dim3 grid(params.n_seq, n_slices);
-    constexpr bool isSmem = isSmem_;
-    constexpr int smem_size = isSmem ? Kernel_traits::smemSize : 0;
+    constexpr bool isGmem = isGmem_;
+    constexpr int smem_size = isGmem ? 0 : Kernel_traits::smemSize;
 
-    auto kernel = &bm_kernel<Kernel_traits, isSmem_>;
+    auto kernel = &bm_kernel<Kernel_traits, isGmem>;
     
     if (smem_size >= 48 * 1024) {
         C10_CUDA_CHECK(cudaFuncSetAttribute(
@@ -31,9 +32,11 @@ run_bm_(const Bm_params &params, cudaStream_t stream) {
 
 void
 run_bm(const Bm_params& params, const bool is_gmem, cudaStream_t stream) {
-    if (is_gmem) {
-        run_bm_<Bm_kernel_traits<4096, 16>, false>(params, stream);
-    } else {
-        run_bm_<Bm_kernel_traits<4096, 16>, true>(params, stream);
-    }
+    DTYPE_SWITCH(params.dtype, [&]() {
+        SEQLEN_SWITCH(params.seqlen, [&]() {
+            BOOL_SWITCH(is_gmem, isGmem, [&]() {
+                run_bm_<Bm_kernel_traits<blockN, nWarps, Element>, isGmem>(params, stream);
+            });
+        });
+    });
 }

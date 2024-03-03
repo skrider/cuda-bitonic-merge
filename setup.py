@@ -33,7 +33,7 @@ ext_modules.append(
         extra_compile_args={
             "cxx": ["-O3", "-std=c++17"] + generator_flag,
             "nvcc": [
-                    "-O3",
+                    "-O0",
                     "-std=c++17",
                     "-U__CUDA_NO_HALF_OPERATORS__",
                     "-U__CUDA_NO_HALF_CONVERSIONS__",
@@ -44,6 +44,8 @@ ext_modules.append(
                     "--use_fast_math",
                     "--threads",
                     "4",
+                    "-g",
+                    "-G",
                 ]
                 + generator_flag
                 + cc_flag,

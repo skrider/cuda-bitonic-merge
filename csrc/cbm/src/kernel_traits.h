@@ -22,7 +22,8 @@ struct Bm_kernel_traits {
 
     using GmemThreadLayout = Layout<Shape<Int<nThreads>>>;
     // TODO we may not want to disable caching
-    using Gmem_copy_struct = SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>;
+    // using Gmem_copy_struct = SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>;
+    using Gmem_copy_struct = DefaultCopy;
     using GmemTiledCopy = decltype(
         make_tiled_copy(Copy_Atom<Gmem_copy_struct, Element>{},
                         GmemThreadLayout{},
@@ -30,3 +31,15 @@ struct Bm_kernel_traits {
 
     using SortTileShape = Shape<Int<sortElemsPerThread>>;
 };
+
+template<typename Kernel_traits>
+void
+__device__ __host__
+print_kernel_traits() {
+    printf("blockN: %d\n", Kernel_traits::blockN);
+    printf("nWarps: %d\n", Kernel_traits::nWarps);
+    printf("nThreads: %d\n", Kernel_traits::nThreads);
+    printf("sortElemsPerThread: %d\n", Kernel_traits::sortElemsPerThread);
+    printf("gmemElemsPerLoad: %d\n", Kernel_traits::gmemElemsPerLoad);
+    printf("smemSize: %d\n", Kernel_traits::smemSize);
+}
